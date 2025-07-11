@@ -3,7 +3,7 @@ import cv2
 import pytesseract
 import easyocr
 import numpy as np
-
+from datetime import datetime
 
 pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
 
@@ -16,14 +16,14 @@ class Fire_exi_tag():
         if self.image is None:
             raise ValueError(f'Не загрузилось изображение {img}')
         
-    #Обработка изображения
+    #Обработка изображения (доработать)
     def proccesing_img(self):
 
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
 
         binary = cv2.adaptiveThreshold(gray, 255, 
                                        cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                       cv2.THRESH_BINARY_INV, 31, 15)
+                                       cv2.THRESH_BINARY_INV, 21, 15)
 
         kenary = np.ones((1,1), np.uint8)
         processed = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kenary, iterations=1)
@@ -64,8 +64,42 @@ class Fire_exi_tag():
 #на этой эмблеме ищет где написан год и месяц последующей поверки, 
 #распознает что там написано и в выдает в качестве результата своей работы.
 
-    def detect_word_date(self):
-        pass
+    def detect_word_date(self, keywords=None):
+
+       
+        if keywords is None:
+            keywords = [
+        'поверка', 'проверка', 'следующая', 'дата', 
+        'годен до', 'срок', 'испытания', 'испытан',
+        'ОТК', 'ПОВЕРКА', 'ПОВЕРЕНО', 'ПРОВЕРЕНО',
+        'следующая проверка', 'дата поверки'
+        ]
+
+        text = self.pytesseract_img()
+        if isinstance(text, bytes):
+            text = text.decode('utf-8')
+
+        text_lower = text.lower()
+    
+     
+        date_patterns = [
+            r'(поверк[аи]|проверк[аи]|годен до|срок|испытан до)[:\s]*(\d{2}\.\d{2}\.\d{4})',
+            r'(следующая проверка|дата поверки)[:\s]*(\d{2}\.\d{4})',
+
+            r'\b\d{2}\.\d{2}\.\d{4}\b',     
+            r'\b\d{2}\.\d{4}\b',             
+            r'\b\d{2}/\d{4}\b',              
+            r'\b\d{2}-\d{4}\b',              
+            r'\b(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]) \d{4}\b'
+
+        ]
+
+
+        found_word = []
+        current_year = datetime.now().year
+
+        
+        
 
 #Проверяет, чтобы цвет фона был цвет огнетушителя: красный, оранжевый И так далее
 
@@ -122,28 +156,30 @@ class Fire_exi_tag():
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('color_to_check/black.jpg')
+    tag = Fire_exi_tag('book_str/photo4.png')
     
     
-
+    #Вывод даты
+    date = tag.detect_word_date()
+    print(f'Дата: {date}')
 
     #Вывод текст с помощью pytesseract
     text_pysseract = tag.pytesseract_img()
     print(f'Расшифрованный текст: \n{text_pysseract}')
 
-
+    print()
     #Вывод текста с помощью easyocr
     text_easyocr = tag.easyocr_img()
     print(f'Расшифрованный текст: \n{text_easyocr}')
 
 
     
-
+    print()
     #Вывод цвета огнетушителя
     color_fire = tag.detect_color()
     print(f'Цвет огнетушителя: {color_fire}')
 
-
+    
 
 
     #Вывод изображения для контроля обработки качества
