@@ -33,7 +33,7 @@ class Fire_exi_tag():
 
         return processed
 
-
+ #Все остальное, что распознано тоже выдает в строку, как доп. информация (добавить )
     #Чтение текста с помощью pytesseract
     def pytesseract_img(self):
 
@@ -57,27 +57,91 @@ class Fire_exi_tag():
         texts = [detect[1] for detect in result]
         return texts[0] if texts else ""
 
+    #Добавить новые библиотеки для распознавания текс на изображении
         
+
+
+#на этой эмблеме ищет где написан год и месяц последующей поверки, 
+#распознает что там написано и в выдает в качестве результата своей работы.
+
+    def detect_word_date(self):
+        pass
+
+#Проверяет, чтобы цвет фона был цвет огнетушителя: красный, оранжевый И так далее
+
+    def detect_color(self):
+        
+        
+        hsv = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
+
+
+        red_lower1 = np.array([0, 120, 70])
+        red_upper1 = np.array([10, 255, 255])
+        red_lower2 = np.array([160, 120, 70])
+        red_upper2 = np.array([180, 255, 255])
+    
+        yellow_lower = np.array([15, 120, 70])
+        yellow_upper = np.array([35, 255, 255])
+
+        orange_lower = np.array([8, 150, 100])
+        orange_upper = np.array([15, 255, 255])
+        
+        green_lower = np.array([36, 120, 70])
+        green_upper = np.array([85, 255, 255])
+    
+        blue_lower = np.array([86, 120, 70])
+        blue_upper = np.array([130, 255, 255])
+
+        red_mask = cv2.inRange(hsv, red_lower1, red_upper1) + cv2.inRange(hsv, red_lower2, red_upper2)
+        yellow_mask = cv2.inRange(hsv, yellow_lower, yellow_upper)
+        green_mask = cv2.inRange(hsv, green_lower, green_upper)
+        blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
+        orange_mask = cv2.inRange(hsv, orange_lower, orange_upper)
+
+
+        colors = {
+        'Красный': cv2.countNonZero(red_mask),
+        'Оранжевый': cv2.countNonZero(orange_mask),
+        'Желтый': cv2.countNonZero(yellow_mask),
+        'Зеленый': cv2.countNonZero(green_mask),
+        'Синий': cv2.countNonZero(blue_mask),
+        }
+
+
+        max_color = max(colors, key=colors.get)
+        
+
+        if colors[max_color] < (hsv.shape[0] * hsv.shape[1] * 0.1):  
+            return "Не удалось определить цвет огнетушителя"
+    
+        return max_color
+
+
 
 
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('fire_exti/photo16.jpg')
+    tag = Fire_exi_tag('color_to_check/black.jpg')
     
+    
+
+
     #Вывод текст с помощью pytesseract
     text_pysseract = tag.pytesseract_img()
     print(f'Расшифрованный текст: \n{text_pysseract}')
 
 
-    #ывод текста с помощью easyocr
+    #Вывод текста с помощью easyocr
     text_easyocr = tag.easyocr_img()
     print(f'Расшифрованный текст: \n{text_easyocr}')
 
 
+    
 
-
-
+    #Вывод цвета огнетушителя
+    color_fire = tag.detect_color()
+    print(f'Цвет огнетушителя: {color_fire}')
 
 
 
