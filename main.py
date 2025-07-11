@@ -45,7 +45,19 @@ class Fire_exi_tag():
         return tex_pytes
 
 
+    #Чтение текста с помощью easyocr
+    def easyocr_img(self):
 
+        img = self.proccesing_img()
+
+        reader = easyocr.Reader(['ru'], gpu=False)
+
+        result = reader.readtext(img)
+
+        texts = [detect[1] for detect in result]
+        return texts[0] if texts else ""
+
+        
 
 
 
@@ -57,6 +69,10 @@ if __name__ == '__main__':
     text_pysseract = tag.pytesseract_img()
     print(f'Расшифрованный текст: \n{text_pysseract}')
 
+
+    #ывод текста с помощью easyocr
+    text_easyocr = tag.easyocr_img()
+    print(f'Расшифрованный текст: \n{text_easyocr}')
 
 
 
