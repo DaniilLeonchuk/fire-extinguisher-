@@ -16,7 +16,7 @@ class Fire_exi_tag():
         if self.image is None:
             raise ValueError(f'Не загрузилось изображение {img}')
         
-
+    #Обработка изображения
     def proccesing_img(self):
 
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
@@ -32,8 +32,18 @@ class Fire_exi_tag():
 
 
         return processed
-        
-    
+
+
+    #Чтение текста с помощью pytesseract
+    def pytesseract_img(self):
+
+        img = self.proccesing_img()
+
+        config = '--oem 3 --psm 6 -l rus'
+        tex_pytes =  pytesseract.image_to_string(img, config=config)
+
+        return tex_pytes
+
 
 
 
@@ -43,10 +53,20 @@ class Fire_exi_tag():
 if __name__ == '__main__':
     tag = Fire_exi_tag('fire_exti/photo16.jpg')
     
+    #Вывод текст с помощью pytesseract
+    text_pysseract = tag.pytesseract_img()
+    print(f'Расшифрованный текст: \n{text_pysseract}')
 
 
 
 
+
+
+
+
+
+
+    #Вывод изображения для контроля обработки качества
     processed_img = tag.proccesing_img()
     cv2.imshow('tag', processed_img)
     cv2.waitKey(0)
