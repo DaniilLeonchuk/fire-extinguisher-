@@ -4,7 +4,7 @@ from PIL import ImageFont, ImageDraw, Image
 import easyocr
 import numpy as np
 from datetime import datetime
-import skimage as ski
+import keras_ocr
 
 
 
@@ -31,34 +31,22 @@ class Fire_exi_tag():
     
 
   
+    def keras_img(self):
 
+        img = self.image
         
+        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        pipeline = keras_ocr.pipeline.Pipeline()
+
+        prediction = pipeline.recognize([rgb_img][0])
+
+
+        return prediction
+
 
 
     #Обработка изображения (доработать)
-    def proccesing_img(self, gamma=2, clip_limit=2.0):
-        
-        
-        gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
     
-    # Гамма-коррекция (более мягкая)
-        if gamma != 1.0:
-            inv_gamma = 1.0 / gamma
-            table = np.array([((i / 255.0) ** inv_gamma) * 255
-                            for i in np.arange(0, 256)]).astype("uint8")
-            gray = cv2.LUT(gray, table)
-        
-        # Мягкое увеличение резкости
-        kernel = np.array([[0, -0.25, 0],
-                   [-0.25, 2, -0.25],
-                   [0, -0.25, 0]]) 
-        sharpened = cv2.filter2D(gray, -1, kernel)
-        
-        # CLAHE с настраиваемым пределом
-        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
-        enhanced = clahe.apply(sharpened)
-        
-        return enhanced
 
 
 
@@ -70,7 +58,7 @@ class Fire_exi_tag():
     def easyocr_img(self):
 
         
-        img = self.proccesing_img()
+        img = self.keras_img()
         
         results = self.reader.readtext(img, 
                                        batch_size=1, 
@@ -273,7 +261,7 @@ if __name__ == '__main__':
     print(f'Дополнительная информация: \n{text_easyocr}')
     
     #Вывод изображения для контроля обработки качества
-    proccesing_img = tag.proccesing_img()
+    proccesing_img = tag.keras_img()
  
     cv2.imshow('tag', proccesing_img)
     cv2.waitKey(0)
