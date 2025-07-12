@@ -51,7 +51,8 @@ class Fire_exi_tag():
         results = self.reader.readtext(img, 
                                        batch_size=1, 
                                        detail=1, 
-                                       decoder='beamsearch'
+                                       decoder='beamsearch',
+                                       
         )
         
        
@@ -87,6 +88,7 @@ class Fire_exi_tag():
         date_patterns = [
             r'(поверк[аи]|проверк[аи]|годен до|срок|испытан до)[:\s]*(\d{2}\.\d{2}\.\d{4})',
             r'(следующая проверка|дата поверки)[:\s]*(\d{2}\.\d{4})',
+            
 
             r'\b\d{2}\.\d{2}\.\d{4}\b',     
             r'\b\d{2}\.\d{4}\b',             
@@ -97,23 +99,32 @@ class Fire_exi_tag():
         ]
 
 
-        found_word = []
-        current_year = datetime.now().year
+        found_dates = []
+        
 
         for keyword in keywords:
             for pattern in date_patterns:
-                # Ищем в формате "ключевое слово ДД.ММ.ГГГГ"
-                match = re.search(fr'{re.escape(keyword)}\s*[:\-]?\s*({pattern})', text, re.IGNORECASE)
-                if match:
-                    return match.group(1)  # Возвращаем найденную дату
+                regex_pattern = fr'{re.escape(keyword)}\s*[:\-]?\s*({pattern})'
+                
+                matches = re.finditer(regex_pattern, text, re.IGNORECASE)
+                for match in matches:
+                    date = match.group(1)
+                    if date not in found_dates:
+                        found_dates.append(date) 
 
         # Если не нашли по ключевым словам, ищем любую дату в тексте
         for pattern in date_patterns:
-            match = re.search(pattern, text)
-            if match:
-                return match.group()
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                date = match.group()
+                if date not in found_dates:
+                    found_dates.append(date)
 
-        return 'Дата не найдена'
+        return found_dates if found_dates else 'Дата не найдена'
+        
+    
+
+        
 
 
 
@@ -175,15 +186,15 @@ class Fire_exi_tag():
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('fire_exti/photo16.jpg')
+    tag = Fire_exi_tag('photo.png')
     
-    #Вывод текста с помощью easyocr
-    text_easyocr = tag.easyocr_img()
-    print(f'Дополнительная информация: \n{text_easyocr}')
+    
 
     #Вывод даты
-    date = tag.detect_word_date()
-    print(f'Дата: {date}')
+    dates = tag.detect_word_date()
+    print('Найденные даты:')
+    for i, date in enumerate(dates, 1):
+        print(f'{i}. {date}')
 
     
 
@@ -194,8 +205,10 @@ if __name__ == '__main__':
     print(f'Цвет огнетушителя: {color_fire}')
 
     
-
-
+    #Вывод текста с помощью easyocr
+    text_easyocr = tag.easyocr_img()
+    print(f'Дополнительная информация: \n{text_easyocr}')
+    
     #Вывод изображения для контроля обработки качества
     proccesing_img = tag.proccesing_img()
  
