@@ -9,7 +9,6 @@ from datetime import datetime
 
 
 
-
 class Fire_exi_tag():
     
 
@@ -27,15 +26,15 @@ class Fire_exi_tag():
         except IOError:
             print("Ошибка: шрифт 'arial.ttf' не найден.")
             self.font = None
-    
+        
 
   
-    def proccesing_img(self, gamma=2, clip_limit=2.0):
+    def proccesing_img(self, gamma=1.5, clip_limit=2.0):
         
         
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-    
-    # Гамма-коррекция (более мягкая)
+        
+        
         if gamma != 1.0:
             inv_gamma = 1.0 / gamma
             table = np.array([((i / 255.0) ** inv_gamma) * 255
@@ -45,15 +44,17 @@ class Fire_exi_tag():
         # Мягкое увеличение резкости
         kernel = np.array([[0, -0.25, 0],
                    [-0.25, 2, -0.25],
-                   [0, -0.25, 0]]) 
+                   [0, -0.25, 0]])
         sharpened = cv2.filter2D(gray, -1, kernel)
         
         # CLAHE с настраиваемым пределом
         clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
         enhanced = clahe.apply(sharpened)
+        return enhanced 
         
-        return enhanced
 
+
+    
 
 
     #Обработка изображения (доработать)
@@ -79,14 +80,20 @@ class Fire_exi_tag():
         )
         return " ".join([result[1] for result in results]) if results else "" 
     
+    def correct_ocr_text(self, text):
+        """Постобработка текста (метод 4)"""
+        corrections = {
+            '0П': 'ОП', 
+            'Г0': 'ГО',
+            'дaтa': 'дата',
+            'П0ЖАР': 'ПОЖАР'
+        }
+        for wrong, right in corrections.items():
+            text = text.replace(wrong, right)
+        return re.sub(r'[^а-яА-Я0-9.,\-: ]', '', text).strip()
+    
 
-       
-        
-        
-        
-    #Добавить новые библиотеки для распознавания текс на изображении
-        
-
+    
 
 #на этой эмблеме ищет где написан год и месяц последующей поверки, 
 #распознает что там написано и в выдает в качестве результата своей работы.
@@ -106,95 +113,50 @@ class Fire_exi_tag():
             text = text.decode('utf-8')
 
         found_dates = []
-        used_positions = set()  # Для отслеживания позиций уже найденных дат
+        used_positions = set()
 
-        # Шаблоны дат с привязкой к ключевым словам
+        # Улучшенные шаблоны для текстовых месяцев
+        month_pattern = r'(январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])'
+        
+        # Шаблоны с ключевыми словами
         for keyword, label in keywords.items():
-            # Базовый шаблон для дат после ключевого слова
-            pattern = fr'{re.escape(keyword)}\s*[:\-]?\s*(\d{{2}}\.\d{{2}}\.\d{{4}}|\d{{2}}\.\d{{4}}|\d{{2}}/\d{{4}}|\d{{2}}-\d{{4}}|(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\s\d{{4}})'
-            
+            pattern = fr'{re.escape(keyword)}\s*[:\-]?\s*(\d{{2}}\.\d{{2}}\.\d{{4}}|\d{{2}}\.\d{{4}}|\d{{2}}/\d{{4}}|\d{{2}}-\d{{4}}|{month_pattern}\s\d{{4}})'
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
                 start, end = match.span()
                 if (start, end) not in used_positions:
                     used_positions.add((start, end))
-                    date = match.group(1).replace(':', '.')
+                    date = match.group(1)
                     found_dates.append({
                         'type': label,
                         'date': date,
+                        'formatted_date': date.title(),  # Первая буква заглавная
                         'raw': match.group(0)
                     })
 
-        # Шаблоны для специальных случаев (поверка, срок годности и т.д.)
-        special_patterns = [
-            (r'(поверк[аи]|проверк[аи]|годен до|срок|испытан до)[:\s]*(\d{2}\.\d{2}\.\d{4})', 1),
-            (r'(следующая проверка|дата поверки)[:\s]*(\d{2}\.\d{4})', 1)
-        ]
-
-        for pattern, group_idx in special_patterns:
-            matches = re.finditer(pattern, text, re.IGNORECASE)
-            for match in matches:
-                start, end = match.span(group_idx + 1)  # +1 потому что group(0) - вся строка
-                if (start, end) not in used_positions:
-                    used_positions.add((start, end))
-                    date = match.group(group_idx + 1).replace(':', '.')
-                    found_dates.append({
-                        'type': match.group(1),
-                        'date': date,
-                        'raw': match.group(0)
-                    })
-
-        # Общие шаблоны дат (если не найдено по ключевым словам)
-       
+        # Шаблоны для дат без ключевых слов
         general_patterns = [
-        # Полные даты (день.месяц.год) с валидацией
-        r'\b(?:0[1-9]|[12][0-9]|3[01])\.(?:0[1-9]|1[0-2])\.\d{4}\b',  # 01.01.2023 (день 01-31, месяц 01-12)
-        r'\b([1-9]|[12][0-9]|3[01])\.(?:0[1-9]|1[0-2])\.\d{4}\b',  # 1.01.2023 (день 1-31, месяц 01-12)
-        
-        # Даты в формате месяц.год с валидацией
-        r'\b(?:0[1-9]|1[0-2])\.\d{4}\b',  # 09.2017 (месяц 01-12)
-        r'\b([1-9]|1[0-2])\.\d{4}\b',  # 9.2017 (месяц 1-12)
-        
-        # Даты с разделителями / и - с валидацией
-        r'\b(?:0[1-9]|[12][0-9]|3[01])/(?:0[1-9]|1[0-2])/\d{4}\b',  # 01/01/2023
-        r'\b(?:0[1-9]|[12][0-9]|3[01])-(?:0[1-9]|1[0-2])-\d{4}\b',  # 01-01-2023
-        r'\b(?:0[1-9]|1[0-2])/\d{4}\b',  # 09/2017
-        r'\b(?:0[1-9]|1[0-2])-\d{4}\b',  # 09-2017
-        
-        # Текстовые форматы дат с годом (уже валидные)
-        r'\b(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\s\d{4}\b',
-        r'\b(?:янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)[а-я]*\.?\s\d{4}\b',
-        
-        # Просто даты (день и месяц) с валидацией
-        r'\b(?:0[1-9]|[12][0-9]|3[01])\.(?:0[1-9]|1[0-2])\b',  # 01.01 (день 01-31, месяц 01-12)
-        r'\b([1-9]|[12][0-9]|3[01])\.(?:0[1-9]|1[0-2])\b',  # 1.01 (день 1-31, месяц 01-12)
-        r'\b(?:0[1-9]|[12][0-9]|3[01])/(?:0[1-9]|1[0-2])\b',  # 01/01
-        r'\b(?:0[1-9]|[12][0-9]|3[01])-(?:0[1-9]|1[0-2])\b',  # 01-01
-        
-        # Текстовые месяцы (уже валидные)
-        r'\b(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\b',
-        r'\b(?:янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)[а-я]*\.?\b',
-        r'\b\d{1,2}\s(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\b',
-        r'\b\d{1,2}\s(?:янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)[а-я]*\.?\b',
-        
-        # Просто год (4 цифры, от 1000 до 2099)
-        r'\b(?:1\d{3}|20[0-9]{2})\b',
+            fr'{month_pattern}\s(?:19\d{{2}}|20[0-8]\d|209[0-9])',  # Текстовый месяц + год (до 2099)
+            r'\d{2}\.\d{2}\.(?:19\d{2}|20[0-8]\d|209[0-9])',        # ДД.ММ.ГГГГ (до 2099)
+            r'\d{2}\.(?:19\d{2}|20[0-8]\d|209[0-9])',               # ММ.ГГГГ (до 2099)
+            r'(?:19\d{2}|20[0-8]\d|209[0-9])'                        # ГГГГ
         ]
 
         for pattern in general_patterns:
-            matches = re.finditer(pattern, text)
+            matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
                 start, end = match.span()
                 if not any(start >= used_start and end <= used_end for used_start, used_end in used_positions):
                     used_positions.add((start, end))
-                    date = match.group().replace(':', '.')
+                    date = match.group()
                     found_dates.append({
-                        'type': '',
+                        'type': 'Дата',
                         'date': date,
+                        'formatted_date': date.title(),
                         'raw': match.group()
                     })
 
-        return found_dates if found_dates else [{'type': 'Дата не найдена', 'date': None, 'raw': None}]
+        return found_dates if found_dates else [{'type': 'Дата не найдена', 'date': None, 'formatted_date': None, 'raw': None}]
         
     
 
@@ -259,7 +221,7 @@ class Fire_exi_tag():
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('fire_exti/photo32.jpg')
+    tag = Fire_exi_tag('fire_exti/photo9.jpg')
     
     
 
@@ -283,8 +245,8 @@ if __name__ == '__main__':
 
     print()
     #Вывод текста с помощью easyocr
-    text_easyocr = tag.easyocr_img()
-    print(f'Дополнительная информация: \n{text_easyocr}')
+    text = tag.easyocr_img()
+    print("Распознанный текст:", tag.easyocr_img())
     
     #Вывод изображения для контроля обработки качества
     proccesing_img = tag.proccesing_img()
