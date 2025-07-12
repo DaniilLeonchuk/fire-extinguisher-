@@ -21,9 +21,13 @@ class Fire_exi_tag():
     
 
 
-        self.reader = easyocr.Reader(['ru', 'en'], gpu=False, )
+        self.reader = easyocr.Reader(['ru', 'en'], gpu=False)
 
-
+        try:
+            self.font = ImageFont.truetype("arial.ttf", 24)  # или другой подходящий шрифт
+        except IOError:
+            print("Ошибка: шрифт 'arial.ttf' не найден.")
+            self.font = None
     
 
   
@@ -32,11 +36,31 @@ class Fire_exi_tag():
 
 
     #Обработка изображения (доработать)
-    def proccesing_img(self):
-
+    def proccesing_img(self, gamma=2, clip_limit=2.0):
+        
+        
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
-        return clahe.apply(gray)
+    
+    # Гамма-коррекция (более мягкая)
+        if gamma != 1.0:
+            inv_gamma = 1.0 / gamma
+            table = np.array([((i / 255.0) ** inv_gamma) * 255
+                            for i in np.arange(0, 256)]).astype("uint8")
+            gray = cv2.LUT(gray, table)
+        
+        # Мягкое увеличение резкости
+        kernel = np.array([[0, -0.25, 0],
+                   [-0.25, 2, -0.25],
+                   [0, -0.25, 0]]) 
+        sharpened = cv2.filter2D(gray, -1, kernel)
+        
+        # CLAHE с настраиваемым пределом
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=(8, 8))
+        enhanced = clahe.apply(sharpened)
+        
+        return enhanced
+
+
 
  #Все остальное, что распознано тоже выдает в строку, как доп. информация (добавить )
     
@@ -54,11 +78,13 @@ class Fire_exi_tag():
                                        decoder='beamsearch',
                                        
         )
-        
+        return " ".join([result[1] for result in results]) if results else "" 
+    
+
        
         
         
-        return " ".join([result[1] for result in results]) if results else "" 
+        
     #Добавить новые библиотеки для распознавания текс на изображении
         
 
@@ -67,60 +93,94 @@ class Fire_exi_tag():
 #распознает что там написано и в выдает в качестве результата своей работы.
 
     def detect_word_date(self, keywords=None):
-
-       
         if keywords is None:
-            keywords = [
-        'поверка', 'проверка', 'следующая', 'дата', 
-        'годен до', 'срок', 'испытания', 'испытан',
-        'ОТК', 'ПОВЕРКА', 'ПОВЕРЕНО', 'ПРОВЕРЕНО',
-        'следующая проверка', 'дата поверки',
-        'год', 'ГОД', 'Год', 'Дата заправки'
-        ]
+            keywords = {
+                'дата заправки': 'Дата заправки',
+                'дата изготовления': 'Дата изготовления',
+                'дата следующего освидетельствования': 'Дата следующего освидетельствования',
+                'год': 'Год изготовления',
+                'дата': 'дата'
+            }
 
         text = self.easyocr_img()
         if isinstance(text, bytes):
             text = text.decode('utf-8')
 
-        text_lower = text.lower()
-    
-     
-        date_patterns = [
-            r'(поверк[аи]|проверк[аи]|годен до|срок|испытан до)[:\s]*(\d{2}\.\d{2}\.\d{4})',
-            r'(следующая проверка|дата поверки)[:\s]*(\d{2}\.\d{4})',
+        found_dates = []
+        used_positions = set()  # Для отслеживания позиций уже найденных дат
+
+        # Шаблоны дат с привязкой к ключевым словам
+        for keyword, label in keywords.items():
+            # Базовый шаблон для дат после ключевого слова
+            pattern = fr'{re.escape(keyword)}\s*[:\-]?\s*(\d{{2}}\.\d{{2}}\.\d{{4}}|\d{{2}}\.\d{{4}}|\d{{2}}/\d{{4}}|\d{{2}}-\d{{4}}|(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\s\d{{4}})'
             
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                start, end = match.span()
+                if (start, end) not in used_positions:
+                    used_positions.add((start, end))
+                    date = match.group(1).replace(':', '.')
+                    found_dates.append({
+                        'type': label,
+                        'date': date,
+                        'raw': match.group(0)
+                    })
 
-            r'\b\d{2}\.\d{2}\.\d{4}\b',     
-            r'\b\d{2}\.\d{4}\b',             
-            r'\b\d{2}/\d{4}\b',              
-            r'\b\d{2}-\d{4}\b',              
-            r'\b(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья]) \d{4}\b'
-
+        # Шаблоны для специальных случаев (поверка, срок годности и т.д.)
+        special_patterns = [
+            (r'(поверк[аи]|проверк[аи]|годен до|срок|испытан до)[:\s]*(\d{2}\.\d{2}\.\d{4})', 1),
+            (r'(следующая проверка|дата поверки)[:\s]*(\d{2}\.\d{4})', 1)
         ]
 
+        for pattern, group_idx in special_patterns:
+            matches = re.finditer(pattern, text, re.IGNORECASE)
+            for match in matches:
+                start, end = match.span(group_idx + 1)  # +1 потому что group(0) - вся строка
+                if (start, end) not in used_positions:
+                    used_positions.add((start, end))
+                    date = match.group(group_idx + 1).replace(':', '.')
+                    found_dates.append({
+                        'type': match.group(1),
+                        'date': date,
+                        'raw': match.group(0)
+                    })
 
-        found_dates = []
+        # Общие шаблоны дат (если не найдено по ключевым словам)
+       
+        general_patterns = [
+        # Полные даты (день.месяц.год)
+        r'\b\d{2}\.\d{2}\.\d{4}\b',  # 01.01.2023
+        r'\b\d{1}\.\d{2}\.\d{4}\b',  # 1.01.2023
         
+        # Даты в формате месяц.год
+        r'\b\d{2}\.\d{4}\b',  # 09.2017
+        r'\b\d{1}\.\d{4}\b',  # 9.2017
+        
+        # Даты с разделителями / и -
+        r'\b\d{2}/\d{2}/\d{4}\b',  # 01/01/2023
+        r'\b\d{2}-\d{2}-\d{4}\b',  # 01-01-2023
+        r'\b\d{2}/\d{4}\b',  # 09/2017
+        r'\b\d{2}-\d{4}\b',  # 09-2017
+        
+        # Текстовые форматы дат
+        r'\b(?:январ[ья]|феврал[ья]|март[а]?|апрел[ья]|ма[йя]|июн[ья]|июл[ья]|август[а]?|сентябр[ья]|октябр[ья]|ноябр[ья]|декабр[ья])\s\d{4}\b',  # январь 2023
+        r'\b(?:янв|фев|мар|апр|ма[йя]|июн|июл|авг|сен|окт|ноя|дек)[а-я]*\.?\s\d{4}\b'
+            ]
 
-        for keyword in keywords:
-            for pattern in date_patterns:
-                regex_pattern = fr'{re.escape(keyword)}\s*[:\-]?\s*({pattern})'
-                
-                matches = re.finditer(regex_pattern, text, re.IGNORECASE)
-                for match in matches:
-                    date = match.group(1)
-                    if date not in found_dates:
-                        found_dates.append(date) 
-
-        # Если не нашли по ключевым словам, ищем любую дату в тексте
-        for pattern in date_patterns:
+        for pattern in general_patterns:
             matches = re.finditer(pattern, text)
             for match in matches:
-                date = match.group()
-                if date not in found_dates:
-                    found_dates.append(date)
+                start, end = match.span()
+                if not any(start >= used_start and end <= used_end for used_start, used_end in used_positions):
+                    used_positions.add((start, end))
+                    date = match.group().replace(':', '.')
+                    found_dates.append({
+                        'type': 'Неизвестная дата',
+                        'date': date,
+                        'raw': match.group()
+                    })
 
-        return found_dates if found_dates else 'Дата не найдена'
+        return found_dates if found_dates else [{'type': 'Дата не найдена', 'date': None, 'raw': None}]
         
     
 
@@ -134,7 +194,6 @@ class Fire_exi_tag():
 #Проверяет, чтобы цвет фона был цвет огнетушителя: красный, оранжевый И так далее
 
     def detect_color(self):
-        
         
         hsv = cv2.cvtColor(self.image, cv2.COLOR_BGR2HSV)
 
@@ -186,25 +245,29 @@ class Fire_exi_tag():
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('photo.png')
+    tag = Fire_exi_tag('fire_exti/photo16.jpg')
     
     
 
     #Вывод даты
     dates = tag.detect_word_date()
     print('Найденные даты:')
-    for i, date in enumerate(dates, 1):
-        print(f'{i}. {date}')
+    for i, date_info in enumerate(dates, 1):
+        if date_info['type'] == 'Дата не найдена':
+            print(date_info['type'])
+        else:
+            print(f'{i}. {date_info['type']}: {date_info['date']}')
+        
 
     
 
     
-    print()
+    
     #Вывод цвета огнетушителя
     color_fire = tag.detect_color()
     print(f'Цвет огнетушителя: {color_fire}')
 
-    
+    print()
     #Вывод текста с помощью easyocr
     text_easyocr = tag.easyocr_img()
     print(f'Дополнительная информация: \n{text_easyocr}')
