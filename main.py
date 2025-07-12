@@ -1,11 +1,14 @@
 import re
 import cv2
-import pytesseract
+from PIL import ImageFont, ImageDraw, Image
 import easyocr
 import numpy as np
 from datetime import datetime
+import skimage as ski
 
-pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+
+
+
 
 
 class Fire_exi_tag():
@@ -15,48 +18,46 @@ class Fire_exi_tag():
         self.image = cv2.imread(img)
         if self.image is None:
             raise ValueError(f'Не загрузилось изображение {img}')
+    
+
+
+        self.reader = easyocr.Reader(['ru', 'en'], gpu=False, )
+
+
+    
+
+  
+
         
+
+
     #Обработка изображения (доработать)
     def proccesing_img(self):
 
         gray = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-
-        binary = cv2.adaptiveThreshold(gray, 255, 
-                                       cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                       cv2.THRESH_BINARY_INV, 21, 15)
-
-        kenary = np.ones((1,1), np.uint8)
-        processed = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kenary, iterations=1)
-        processed = cv2.dilate(processed, kenary, iterations=1)
-        processed = cv2.bitwise_not(processed)
-
-
-        return processed
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
+        return clahe.apply(gray)
 
  #Все остальное, что распознано тоже выдает в строку, как доп. информация (добавить )
-    #Чтение текста с помощью pytesseract
-    def pytesseract_img(self):
-
-        img = self.proccesing_img()
-
-        config = '--oem 3 --psm 6 -l rus'
-        tex_pytes =  pytesseract.image_to_string(img, config=config)
-
-        return tex_pytes
+    
 
 
     #Чтение текста с помощью easyocr
     def easyocr_img(self):
 
+        
         img = self.proccesing_img()
-
-        reader = easyocr.Reader(['ru'], gpu=False)
-
-        result = reader.readtext(img)
-
-        texts = [detect[1] for detect in result]
-        return texts[0] if texts else ""
-
+        
+        results = self.reader.readtext(img, 
+                                       batch_size=1, 
+                                       detail=1, 
+                                       decoder='beamsearch'
+        )
+        
+       
+        
+        
+        return " ".join([result[1] for result in results]) if results else "" 
     #Добавить новые библиотеки для распознавания текс на изображении
         
 
@@ -72,10 +73,11 @@ class Fire_exi_tag():
         'поверка', 'проверка', 'следующая', 'дата', 
         'годен до', 'срок', 'испытания', 'испытан',
         'ОТК', 'ПОВЕРКА', 'ПОВЕРЕНО', 'ПРОВЕРЕНО',
-        'следующая проверка', 'дата поверки'
+        'следующая проверка', 'дата поверки',
+        'год', 'ГОД', 'Год', 'Дата заправки'
         ]
 
-        text = self.pytesseract_img()
+        text = self.easyocr_img()
         if isinstance(text, bytes):
             text = text.decode('utf-8')
 
@@ -97,6 +99,23 @@ class Fire_exi_tag():
 
         found_word = []
         current_year = datetime.now().year
+
+        for keyword in keywords:
+            for pattern in date_patterns:
+                # Ищем в формате "ключевое слово ДД.ММ.ГГГГ"
+                match = re.search(fr'{re.escape(keyword)}\s*[:\-]?\s*({pattern})', text, re.IGNORECASE)
+                if match:
+                    return match.group(1)  # Возвращаем найденную дату
+
+        # Если не нашли по ключевым словам, ищем любую дату в тексте
+        for pattern in date_patterns:
+            match = re.search(pattern, text)
+            if match:
+                return match.group()
+
+        return 'Дата не найдена'
+
+
 
         
         
@@ -145,7 +164,7 @@ class Fire_exi_tag():
         max_color = max(colors, key=colors.get)
         
 
-        if colors[max_color] < (hsv.shape[0] * hsv.shape[1] * 0.1):  
+        if colors[max_color] < (hsv.shape[0] * hsv.shape[1] * 0.3):  
             return "Не удалось определить цвет огнетушителя"
     
         return max_color
@@ -156,22 +175,17 @@ class Fire_exi_tag():
 
 
 if __name__ == '__main__':
-    tag = Fire_exi_tag('book_str/photo4.png')
+    tag = Fire_exi_tag('fire_exti/photo16.jpg')
     
-    
+    #Вывод текста с помощью easyocr
+    text_easyocr = tag.easyocr_img()
+    print(f'Дополнительная информация: \n{text_easyocr}')
+
     #Вывод даты
     date = tag.detect_word_date()
     print(f'Дата: {date}')
 
-    #Вывод текст с помощью pytesseract
-    text_pysseract = tag.pytesseract_img()
-    print(f'Расшифрованный текст: \n{text_pysseract}')
-
-    print()
-    #Вывод текста с помощью easyocr
-    text_easyocr = tag.easyocr_img()
-    print(f'Расшифрованный текст: \n{text_easyocr}')
-
+    
 
     
     print()
@@ -183,8 +197,9 @@ if __name__ == '__main__':
 
 
     #Вывод изображения для контроля обработки качества
-    processed_img = tag.proccesing_img()
-    cv2.imshow('tag', processed_img)
+    proccesing_img = tag.proccesing_img()
+ 
+    cv2.imshow('tag', proccesing_img)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
